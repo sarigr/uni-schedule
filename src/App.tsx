@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import "./app.css";
+import "./App.css";
 
 type Day = "Mon" | "Tue" | "Wed" | "Thu" | "Fri";
 type Slot = "09-11" | "11-13" | "14-16" | "16-18";
