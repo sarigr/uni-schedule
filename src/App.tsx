@@ -1,22 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
+/** ===== Types ===== */
 type Day = "Mon" | "Tue" | "Wed" | "Thu" | "Fri";
 type ClassType = "THEORY" | "LAB";
 
 type SlotDef = {
-  id: string;       // stable id (π.χ. "09-11" ή random)
-  start: string;    // "09:00"
-  end: string;      // "11:00"
-  label: string;    // "09:00–11:00"
+  id: string;    // stable id (π.χ. "09-11" ή random)
+  start: string; // "09:00"
+  end: string;   // "11:00"
+  label: string; // "09:00–11:00"
 };
 
 type Entry = {
   id: string;
   title: string;
   day: Day;
-  slotId: string;   // αντί για παλιό Slot union
-  classType: ClassType; // Θ ή Ε
+  slotId: string;
+  classType: ClassType;
   room: string;
   professors: string;
   courseUrl: string;
@@ -30,6 +31,7 @@ type CourseGroup = {
   sessions: Entry[];
 };
 
+/** ===== Constants ===== */
 const DAYS: { key: Day; label: string }[] = [
   { key: "Mon", label: "Δευτέρα" },
   { key: "Tue", label: "Τρίτη" },
@@ -48,16 +50,33 @@ const DEFAULT_SLOTS: SlotDef[] = [
 const ENTRIES_KEY = "uni-schedule:v2";
 const SLOTS_KEY = "uni-schedule:slots:v1";
 
+/** ===== Helpers ===== */
 function uid() {
   return Math.random().toString(36).slice(2) + "-" + Date.now().toString(36);
 }
 
+function isHHMM(x: string) {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(x);
+}
+
+function isDay(x: any): x is Day {
+  return x === "Mon" || x === "Tue" || x === "Wed" || x === "Thu" || x === "Fri";
+}
+
+function isClassType(x: any): x is ClassType {
+  return x === "THEORY" || x === "LAB";
+}
+
 function dayLabel(d: Day) {
-  return DAYS.find(x => x.key === d)?.label ?? d;
+  return DAYS.find((x) => x.key === d)?.label ?? d;
 }
 
 function typeShort(t: ClassType) {
   return t === "THEORY" ? "Θ" : "Ε";
+}
+
+function slotLabel(slotId: string, slots: SlotDef[]) {
+  return slots.find((s) => s.id === slotId)?.label ?? slotId;
 }
 
 function escapeHtml(s: string) {
@@ -67,10 +86,6 @@ function escapeHtml(s: string) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
-}
-
-function isHHMM(x: string) {
-  return /^([01]\d|2[0-3]):[0-5]\d$/.test(x);
 }
 
 function normalizeSlots(raw: any): SlotDef[] {
@@ -89,10 +104,9 @@ function normalizeSlots(raw: any): SlotDef[] {
 }
 
 function loadSlotsFromStorage(): { slots: SlotDef[]; isFirstTime: boolean } {
-  const raw = localStorage.getItem(SLOTS_KEY);
-  if (!raw) return { slots: DEFAULT_SLOTS, isFirstTime: true };
-
   try {
+    const raw = localStorage.getItem(SLOTS_KEY);
+    if (!raw) return { slots: DEFAULT_SLOTS, isFirstTime: true };
     const parsed = JSON.parse(raw);
     const slots = normalizeSlots(parsed);
     if (slots.length === 0) return { slots: DEFAULT_SLOTS, isFirstTime: true };
@@ -104,7 +118,8 @@ function loadSlotsFromStorage(): { slots: SlotDef[]; isFirstTime: boolean } {
 
 /**
  * Backward compatibility:
- * - παλιές εκδόσεις μπορεί να είχαν key ENTRIES_KEY = "uni-schedule:v1" ή slot πεδίο "slot"
+ * - παλιότερη έκδοση μπορεί να είχε "uni-schedule:v1"
+ * - και να αποθήκευε "slot" αντί για "slotId"
  */
 function loadEntriesFromStorage(): Entry[] {
   const candidates = [ENTRIES_KEY, "uni-schedule:v1"];
@@ -117,44 +132,57 @@ function loadEntriesFromStorage(): Entry[] {
       if (!Array.isArray(data)) continue;
 
       const entries: Entry[] = [];
+
       for (const x of data) {
         if (!x || typeof x !== "object") continue;
 
-        const id = typeof x.id === "string" ? x.id : "";
-        const title = typeof x.title === "string" ? x.title : "";
-        const day = typeof x.day === "string" ? (x.day as Day) : "";
-        const classType = typeof x.classType === "string" ? (x.classType as ClassType) : "THEORY";
+        const id = typeof (x as any).id === "string" ? (x as any).id : "";
+        const title = typeof (x as any).title === "string" ? (x as any).title : "";
+        const room = typeof (x as any).room === "string" ? (x as any).room : "";
+        const professors = typeof (x as any).professors === "string" ? (x as any).professors : "";
+        const courseUrl = typeof (x as any).courseUrl === "string" ? (x as any).courseUrl : "";
+        const createdAt = typeof (x as any).createdAt === "number" ? (x as any).createdAt : Date.now();
 
-        // old: x.slot , new: x.slotId
+        // day (MUST be valid)
+        const dayRaw = (x as any).day;
+        if (!isDay(dayRaw)) continue;
+
+        // classType (default to THEORY if missing/invalid)
+        const classTypeRaw = (x as any).classType;
+        const classType: ClassType = isClassType(classTypeRaw) ? classTypeRaw : "THEORY";
+
+        // slotId (new) or slot (old)
         const slotId =
           typeof (x as any).slotId === "string"
             ? (x as any).slotId
-            : (typeof (x as any).slot === "string" ? (x as any).slot : "");
-
-        const room = typeof x.room === "string" ? x.room : "";
-        const professors = typeof x.professors === "string" ? x.professors : "";
-        const courseUrl = typeof x.courseUrl === "string" ? x.courseUrl : "";
-        const createdAt = typeof x.createdAt === "number" ? x.createdAt : Date.now();
+            : typeof (x as any).slot === "string"
+              ? (x as any).slot
+              : "";
 
         if (!id || !title || !slotId) continue;
-        if (!["Mon", "Tue", "Wed", "Thu", "Fri"].includes(day)) continue;
-        if (!["THEORY", "LAB"].includes(classType)) continue;
 
-        entries.push({ id, title, day, slotId, classType, room, professors, courseUrl, createdAt });
+        entries.push({
+          id,
+          title,
+          day: dayRaw,
+          slotId,
+          classType,
+          room,
+          professors,
+          courseUrl,
+          createdAt,
+        });
       }
 
       // migrate to v2
       localStorage.setItem(ENTRIES_KEY, JSON.stringify(entries));
       return entries;
     } catch {
-      // try next key
+      // try next candidate
     }
   }
-  return [];
-}
 
-function slotLabel(slotId: string, slots: SlotDef[]) {
-  return slots.find(s => s.id === slotId)?.label ?? slotId;
+  return [];
 }
 
 function buildSlotIndex(slots: SlotDef[]) {
@@ -166,7 +194,7 @@ function buildSlotIndex(slots: SlotDef[]) {
 function groupEntries(entries: Entry[], slots: SlotDef[]): CourseGroup[] {
   const map = new Map<string, CourseGroup>();
   const slotIdx = buildSlotIndex(slots);
-  const dayOrder = (d: Day) => DAYS.findIndex(x => x.key === d);
+  const dayOrder = (d: Day) => DAYS.findIndex((x) => x.key === d);
   const slotOrder = (slotId: string) => slotIdx.get(slotId) ?? 9999;
 
   for (const e of entries) {
@@ -197,60 +225,71 @@ function buildExportHtml(entries: Entry[], slots: SlotDef[]) {
   const byKey = new Map<string, Entry>();
   for (const e of entries) byKey.set(`${e.day}__${e.slotId}`, e);
 
-  const tableRows = slots.map(slot => {
-    const cells = DAYS.map(day => {
-      const e = byKey.get(`${day.key}__${slot.id}`);
-      if (!e) return `<td class="cell empty"></td>`;
-      return `
-        <td class="cell">
-          <div class="cellTitle">${escapeHtml(e.title)}</div>
-          <div class="cellMeta">
-            <span class="badge">${typeShort(e.classType)}</span>
-            <span class="room">${escapeHtml(e.room || "-")}</span>
-          </div>
-        </td>
-      `;
-    }).join("");
+  const tableRows = slots
+    .map((slot) => {
+      const cells = DAYS
+        .map((day) => {
+          const e = byKey.get(`${day.key}__${slot.id}`);
+          if (!e) return `<td class="cell empty"></td>`;
 
-    return `
-      <tr>
-        <th class="rowHead">${escapeHtml(slot.label)}</th>
-        ${cells}
-      </tr>
-    `;
-  }).join("");
+          return `
+            <td class="cell">
+              <div class="cellTitle">${escapeHtml(e.title)}</div>
+              <div class="cellMeta">
+                <span class="badge">${typeShort(e.classType)}</span>
+                <span class="room">${escapeHtml(e.room || "-")}</span>
+              </div>
+            </td>
+          `;
+        })
+        .join("");
+
+      return `
+        <tr>
+          <th class="rowHead">${escapeHtml(slot.label)}</th>
+          ${cells}
+        </tr>
+      `;
+    })
+    .join("");
 
   const groups = groupEntries(entries, slots);
 
-  const listItems = groups.map(g => {
-    const urlPart = g.courseUrl
-      ? `<a href="${escapeHtml(g.courseUrl)}" target="_blank" rel="noreferrer">${escapeHtml(g.courseUrl)}</a>`
-      : `<span class="muted">—</span>`;
+  const listItems = groups
+    .map((g) => {
+      const urlPart = g.courseUrl
+        ? `<a href="${escapeHtml(g.courseUrl)}" target="_blank" rel="noreferrer">${escapeHtml(g.courseUrl)}</a>`
+        : `<span class="muted">—</span>`;
 
-    const profPart = g.professors?.trim() ? escapeHtml(g.professors) : "—";
+      const profPart = g.professors?.trim() ? escapeHtml(g.professors) : "—";
 
-    const sessionsHtml = g.sessions.map(s => `
-      <div class="sessionRow">
-        <span>${escapeHtml(dayLabel(s.day))} — ${escapeHtml(slotLabel(s.slotId, slots))}</span>
-        <span class="badge">${typeShort(s.classType)}</span>
-        <span class="room">${escapeHtml(s.room || "—")}</span>
-      </div>
-    `).join("");
+      const sessionsHtml = g.sessions
+        .map(
+          (s) => `
+            <div class="sessionRow">
+              <span>${escapeHtml(dayLabel(s.day))} — ${escapeHtml(slotLabel(s.slotId, slots))}</span>
+              <span class="badge">${typeShort(s.classType)}</span>
+              <span class="room">${escapeHtml(s.room || "—")}</span>
+            </div>
+          `
+        )
+        .join("");
 
-    return `
-      <li class="li">
-        <div class="liTitle">${escapeHtml(g.title)}</div>
-        <div class="liMeta"><b>Καθηγητές:</b> ${profPart}</div>
-        <div class="liMeta"><b>Σελίδα μαθήματος:</b> ${urlPart}</div>
-        <div class="liMeta"><b>Ώρες/slots:</b></div>
-        ${sessionsHtml}
-      </li>
-    `;
-  }).join("");
+      return `
+        <li class="li">
+          <div class="liTitle">${escapeHtml(g.title)}</div>
+          <div class="liMeta"><b>Καθηγητές:</b> ${profPart}</div>
+          <div class="liMeta"><b>Σελίδα μαθήματος:</b> ${urlPart}</div>
+          <div class="liMeta"><b>Ώρες/slots:</b></div>
+          ${sessionsHtml}
+        </li>
+      `;
+    })
+    .join("");
 
   const now = new Date().toLocaleString("el-GR");
 
-  // Rock/dark export (με καθαρό print)
+  // Rock/dark export + print-friendly
   return `<!doctype html>
 <html lang="el">
 <head>
@@ -323,7 +362,7 @@ function buildExportHtml(entries: Entry[], slots: SlotDef[]) {
       <thead>
         <tr>
           <th></th>
-          ${DAYS.map(d => `<th class="colHead">${escapeHtml(d.label)}</th>`).join("")}
+          ${DAYS.map((d) => `<th class="colHead">${escapeHtml(d.label)}</th>`).join("")}
         </tr>
       </thead>
       <tbody>
@@ -346,50 +385,45 @@ function buildExportHtml(entries: Entry[], slots: SlotDef[]) {
 </html>`;
 }
 
+/** ===== App ===== */
 export default function App() {
-  const [{ slots: initialSlots, isFirstTime }, setInit] = useState(() => ({ slots: DEFAULT_SLOTS, isFirstTime: true }));
-  const [slots, setSlots] = useState<SlotDef[]>(initialSlots);
-  const [showSlotsSetup, setShowSlotsSetup] = useState<boolean>(isFirstTime);
+  // init once (slots + entries)
+  const [init] = useState(() => {
+    const s = loadSlotsFromStorage();
+    const e = loadEntriesFromStorage();
+    return { slots: s.slots, showSetup: s.isFirstTime, entries: e };
+  });
 
-  const [entries, setEntries] = useState<Entry[]>([]);
+  const [slots, setSlots] = useState<SlotDef[]>(init.slots);
+  const [showSlotsSetup, setShowSlotsSetup] = useState<boolean>(init.showSetup);
+  const [entries, setEntries] = useState<Entry[]>(init.entries);
+
   const [form, setForm] = useState({
     title: "",
     day: "Mon" as Day,
-    slotId: DEFAULT_SLOTS[0].id,
+    slotId: init.slots[0]?.id ?? DEFAULT_SLOTS[0].id,
     classType: "THEORY" as ClassType,
     room: "",
     professors: "",
     courseUrl: "",
   });
 
-  // Load once
-  useEffect(() => {
-    const s = loadSlotsFromStorage();
-    setSlots(s.slots);
-    setShowSlotsSetup(s.isFirstTime);
-
-    const e = loadEntriesFromStorage();
-    setEntries(e);
-
-    setInit(s);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Persist slots
+  // persist slots
   useEffect(() => {
     localStorage.setItem(SLOTS_KEY, JSON.stringify(slots));
   }, [slots]);
 
-  // Persist entries
+  // persist entries
   useEffect(() => {
     localStorage.setItem(ENTRIES_KEY, JSON.stringify(entries));
   }, [entries]);
 
-  // Ensure form slotId exists
+  // keep form slot valid
   useEffect(() => {
     if (slots.length === 0) return;
-    const exists = slots.some(s => s.id === form.slotId);
-    if (!exists) setForm(p => ({ ...p, slotId: slots[0].id }));
+    if (!slots.some((s) => s.id === form.slotId)) {
+      setForm((p) => ({ ...p, slotId: slots[0].id }));
+    }
   }, [slots, form.slotId]);
 
   const slotMap = useMemo(() => {
@@ -401,7 +435,7 @@ export default function App() {
   const courseGroups = useMemo(() => groupEntries(entries, slots), [entries, slots]);
 
   function setDaySlot(day: Day, slotId: string) {
-    setForm(prev => ({ ...prev, day, slotId }));
+    setForm((prev) => ({ ...prev, day, slotId }));
   }
 
   function addOrReplace() {
@@ -418,17 +452,21 @@ export default function App() {
       );
       if (!ok) return;
 
-      setEntries(prev =>
-        prev.map(e => (e.id === existing.id ? {
-          ...e,
-          title,
-          day: form.day,
-          slotId: form.slotId,
-          classType: form.classType,
-          room: form.room.trim(),
-          professors: form.professors.trim(),
-          courseUrl: form.courseUrl.trim(),
-        } : e))
+      setEntries((prev) =>
+        prev.map((e) =>
+          e.id === existing.id
+            ? {
+                ...e,
+                title,
+                day: form.day,
+                slotId: form.slotId,
+                classType: form.classType,
+                room: form.room.trim(),
+                professors: form.professors.trim(),
+                courseUrl: form.courseUrl.trim(),
+              }
+            : e
+        )
       );
       return;
     }
@@ -445,11 +483,11 @@ export default function App() {
       createdAt: Date.now(),
     };
 
-    setEntries(prev => [...prev, newEntry]);
+    setEntries((prev) => [...prev, newEntry]);
   }
 
   function removeEntry(id: string) {
-    setEntries(prev => prev.filter(e => e.id !== id));
+    setEntries((prev) => prev.filter((e) => e.id !== id));
   }
 
   function clearAll() {
@@ -486,19 +524,20 @@ export default function App() {
 
   function addSlot() {
     const id = uid();
-    setSlots(prev => [...prev, { id, start: "09:00", end: "10:00", label: "09:00–10:00" }]);
+    setSlots((prev) => [...prev, { id, start: "09:00", end: "10:00", label: "09:00–10:00" }]);
   }
 
   function updateSlot(id: string, patch: Partial<SlotDef>) {
-    setSlots(prev => prev.map(s => (s.id === id ? { ...s, ...patch } : s)));
+    setSlots((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   }
 
   function moveSlot(id: string, dir: -1 | 1) {
-    setSlots(prev => {
-      const i = prev.findIndex(s => s.id === id);
+    setSlots((prev) => {
+      const i = prev.findIndex((s) => s.id === id);
       if (i < 0) return prev;
       const j = i + dir;
       if (j < 0 || j >= prev.length) return prev;
+
       const copy = [...prev];
       const tmp = copy[i];
       copy[i] = copy[j];
@@ -508,46 +547,45 @@ export default function App() {
   }
 
   function deleteSlot(id: string) {
-    const slotUsed = entries.some(e => e.slotId === id);
+    const slotUsed = entries.some((e) => e.slotId === id);
     const msg = slotUsed
       ? "Αυτό το session χρησιμοποιείται σε καταχωρήσεις. Αν το σβήσεις, θα σβηστούν και οι αντίστοιχες καταχωρήσεις.\n\nΣυνέχεια;"
       : "Σίγουρα θες να διαγράψεις αυτό το session;";
     const ok = confirm(msg);
     if (!ok) return;
 
-    setSlots(prev => prev.filter(s => s.id !== id));
-    setEntries(prev => prev.filter(e => e.slotId !== id));
+    setSlots((prev) => prev.filter((s) => s.id !== id));
+    setEntries((prev) => prev.filter((e) => e.slotId !== id));
   }
 
   function resetToDefaults() {
-    const ok = confirm("Να γυρίσουμε στις προεπιλεγμένες ώρες (09–11, 11–13, 14–16, 16–18);");
+    const ok = confirm(
+      "Να γυρίσουμε στις προεπιλεγμένες ώρες (09–11, 11–13, 14–16, 16–18);\n\nΣημείωση: Όσα μαθήματα είχαν άλλα (custom) sessions θα χαθούν."
+    );
     if (!ok) return;
 
-    // Σημ.: τα ids των default είναι ίδια με τα παλιά ("09-11" κλπ), οπότε οι παλιές καταχωρήσεις ταιριάζουν.
+    const keep = new Set(DEFAULT_SLOTS.map((s) => s.id));
     setSlots(DEFAULT_SLOTS);
+    setEntries((prev) => prev.filter((e) => keep.has(e.slotId)));
   }
 
-  // Αν είναι “setup mode”, δείχνουμε πρώτα ρύθμιση ωρών
+  /** ===== Setup screen ===== */
   if (showSlotsSetup) {
     return (
       <div className="page">
         <header className="header">
           <h1>Ρύθμιση Sessions (Ωρών)</h1>
-          <div className="sub">
-            Πριν βάλεις μαθήματα, όρισε τα sessions/ώρες που θα έχει ο εβδομαδιαίος πίνακας.
-          </div>
+          <div className="sub">Πριν βάλεις μαθήματα, όρισε τα sessions/ώρες που θα έχει ο πίνακας.</div>
         </header>
 
         <div className="layout">
           <section className="panel" style={{ gridColumn: "1 / -1" }}>
             <h2>Sessions</h2>
 
-            {slots.length === 0 ? (
-              <div className="sub">Δεν υπάρχουν sessions. Πρόσθεσε τουλάχιστον ένα.</div>
-            ) : null}
+            {slots.length === 0 ? <div className="sub">Δεν υπάρχουν sessions. Πρόσθεσε τουλάχιστον ένα.</div> : null}
 
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {slots.map(s => (
+              {slots.map((s) => (
                 <div key={s.id} className="li">
                   <div className="liTitle">Session: {s.label}</div>
 
@@ -556,9 +594,10 @@ export default function App() {
                       Έναρξη (HH:MM)
                       <input
                         value={s.start}
-                        onChange={e => {
+                        onChange={(e) => {
                           const v = e.target.value;
-                          updateSlot(s.id, { start: v, label: isHHMM(v) && isHHMM(s.end) ? recomputeLabel(v, s.end) : s.label });
+                          const nextLabel = isHHMM(v) && isHHMM(s.end) ? recomputeLabel(v, s.end) : s.label;
+                          updateSlot(s.id, { start: v, label: nextLabel });
                         }}
                         placeholder="09:00"
                       />
@@ -568,9 +607,10 @@ export default function App() {
                       Λήξη (HH:MM)
                       <input
                         value={s.end}
-                        onChange={e => {
+                        onChange={(e) => {
                           const v = e.target.value;
-                          updateSlot(s.id, { end: v, label: isHHMM(s.start) && isHHMM(v) ? recomputeLabel(s.start, v) : s.label });
+                          const nextLabel = isHHMM(s.start) && isHHMM(v) ? recomputeLabel(s.start, v) : s.label;
+                          updateSlot(s.id, { end: v, label: nextLabel });
                         }}
                         placeholder="11:00"
                       />
@@ -578,24 +618,35 @@ export default function App() {
                   </div>
 
                   <div className="btnRow">
-                    <button className="btn" onClick={() => moveSlot(s.id, -1)}>▲ Πάνω</button>
-                    <button className="btn" onClick={() => moveSlot(s.id, 1)}>▼ Κάτω</button>
-                    <button className="btn danger" onClick={() => deleteSlot(s.id)}>Διαγραφή</button>
+                    <button className="btn" onClick={() => moveSlot(s.id, -1)}>
+                      ▲ Πάνω
+                    </button>
+                    <button className="btn" onClick={() => moveSlot(s.id, 1)}>
+                      ▼ Κάτω
+                    </button>
+                    <button className="btn danger" onClick={() => deleteSlot(s.id)}>
+                      Διαγραφή
+                    </button>
                   </div>
                 </div>
               ))}
             </div>
 
             <div className="btnRow" style={{ marginTop: 14 }}>
-              <button className="btn primary" onClick={addSlot}>+ Προσθήκη session</button>
-              <button className="btn" onClick={resetToDefaults}>Χρήση προεπιλογών</button>
+              <button className="btn primary" onClick={addSlot}>
+                + Προσθήκη session
+              </button>
+              <button className="btn" onClick={resetToDefaults}>
+                Χρήση προεπιλογών
+              </button>
               <button
                 className="btn"
                 onClick={() => {
-                  // validate slots
                   if (slots.length === 0) return alert("Βάλε τουλάχιστον ένα session.");
                   for (const s of slots) {
-                    if (!isHHMM(s.start) || !isHHMM(s.end)) return alert("Διόρθωσε ώρες σε μορφή HH:MM (π.χ. 09:00).");
+                    if (!isHHMM(s.start) || !isHHMM(s.end)) {
+                      return alert("Διόρθωσε ώρες σε μορφή HH:MM (π.χ. 09:00).");
+                    }
                   }
                   setShowSlotsSetup(false);
                 }}
@@ -613,13 +664,12 @@ export default function App() {
     );
   }
 
+  /** ===== Main app ===== */
   return (
     <div className="page">
       <header className="header">
         <h1>Εβδομαδιαίο Πρόγραμμα Μαθημάτων</h1>
-        <div className="sub">
-          Κλικ σε κελί για επιλογή ημέρας/ώρας. Τα sessions/ώρες είναι παραμετροποιήσιμα.
-        </div>
+        <div className="sub">Κλικ σε κελί για επιλογή ημέρας/ώρας. Τα sessions/ώρες είναι παραμετροποιήσιμα.</div>
       </header>
 
       <div className="layout">
@@ -627,7 +677,9 @@ export default function App() {
           <h2>Καταχώρηση μαθήματος</h2>
 
           <div className="btnRow" style={{ marginBottom: 10 }}>
-            <button className="btn" onClick={() => setShowSlotsSetup(true)}>Ρύθμιση ωρών (Sessions)</button>
+            <button className="btn" onClick={() => setShowSlotsSetup(true)}>
+              Ρύθμιση ωρών (Sessions)
+            </button>
           </div>
 
           <div className="formGrid">
@@ -635,17 +687,14 @@ export default function App() {
               Τίτλος μαθήματος *
               <input
                 value={form.title}
-                onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
+                onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))}
                 placeholder="π.χ. Σήματα & Συστήματα"
               />
             </label>
 
             <label>
               Τύπος (Θ/Ε) *
-              <select
-                value={form.classType}
-                onChange={e => setForm(p => ({ ...p, classType: e.target.value as ClassType }))}
-              >
+              <select value={form.classType} onChange={(e) => setForm((p) => ({ ...p, classType: e.target.value as ClassType }))}>
                 <option value="THEORY">Θεωρία (Θ)</option>
                 <option value="LAB">Εργαστήριο (Ε)</option>
               </select>
@@ -653,55 +702,79 @@ export default function App() {
 
             <label>
               Ημέρα *
-              <select value={form.day} onChange={e => setForm(p => ({ ...p, day: e.target.value as Day }))}>
-                {DAYS.map(d => <option key={d.key} value={d.key}>{d.label}</option>)}
+              <select value={form.day} onChange={(e) => setForm((p) => ({ ...p, day: e.target.value as Day }))}>
+                {DAYS.map((d) => (
+                  <option key={d.key} value={d.key}>
+                    {d.label}
+                  </option>
+                ))}
               </select>
             </label>
 
             <label>
               Session (Ώρα) *
-              <select value={form.slotId} onChange={e => setForm(p => ({ ...p, slotId: e.target.value }))}>
-                {slots.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+              <select value={form.slotId} onChange={(e) => setForm((p) => ({ ...p, slotId: e.target.value }))}>
+                {slots.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
               </select>
             </label>
 
             <label>
               Αίθουσα
-              <input value={form.room} onChange={e => setForm(p => ({ ...p, room: e.target.value }))} placeholder="π.χ. Αμφ. Α1 / Lab 2" />
+              <input value={form.room} onChange={(e) => setForm((p) => ({ ...p, room: e.target.value }))} placeholder="π.χ. Αμφ. Α1 / Lab 2" />
             </label>
 
             <label>
               Καθηγητές
-              <input value={form.professors} onChange={e => setForm(p => ({ ...p, professors: e.target.value }))} placeholder="π.χ. Παπαδόπουλος, Γεωργίου" />
+              <input
+                value={form.professors}
+                onChange={(e) => setForm((p) => ({ ...p, professors: e.target.value }))}
+                placeholder="π.χ. Παπαδόπουλος, Γεωργίου"
+              />
             </label>
 
             <label className="span2">
               Σελίδα μαθήματος (URL)
-              <input value={form.courseUrl} onChange={e => setForm(p => ({ ...p, courseUrl: e.target.value }))} placeholder="https://..." />
+              <input value={form.courseUrl} onChange={(e) => setForm((p) => ({ ...p, courseUrl: e.target.value }))} placeholder="https://..." />
             </label>
           </div>
 
           <div className="btnRow">
-            <button className="btn primary" onClick={addOrReplace}>Καταχώρηση στο slot</button>
+            <button className="btn primary" onClick={addOrReplace}>
+              Καταχώρηση στο slot
+            </button>
+
             <button
               className="btn"
-              onClick={() => setForm(p => ({
-                ...p,
-                title: "",
-                classType: "THEORY",
-                room: "",
-                professors: "",
-                courseUrl: "",
-              }))}
+              onClick={() =>
+                setForm((p) => ({
+                  ...p,
+                  title: "",
+                  classType: "THEORY",
+                  room: "",
+                  professors: "",
+                  courseUrl: "",
+                }))
+              }
             >
               Καθαρισμός (εκτός ημέρας/ώρας)
             </button>
-            <button className="btn danger" onClick={clearAll}>Διαγραφή όλων</button>
+
+            <button className="btn danger" onClick={clearAll}>
+              Διαγραφή όλων
+            </button>
           </div>
 
           <div className="exportRow">
-            <button className="btn" onClick={openExportPage}>Άνοιγμα νέας HTML σελίδας</button>
-            <button className="btn" onClick={downloadExportHtml}>Λήψη HTML αρχείου</button>
+            <button className="btn" onClick={openExportPage}>
+              Άνοιγμα νέας HTML σελίδας
+            </button>
+            <button className="btn" onClick={downloadExportHtml}>
+              Λήψη HTML αρχείου
+            </button>
           </div>
         </section>
 
@@ -713,14 +786,20 @@ export default function App() {
               <thead>
                 <tr>
                   <th className="corner"></th>
-                  {DAYS.map(d => <th key={d.key} className="colHead">{d.label}</th>)}
+                  {DAYS.map((d) => (
+                    <th key={d.key} className="colHead">
+                      {d.label}
+                    </th>
+                  ))}
                 </tr>
               </thead>
+
               <tbody>
-                {slots.map(s => (
+                {slots.map((s) => (
                   <tr key={s.id}>
                     <th className="rowHead">{s.label}</th>
-                    {DAYS.map(d => {
+
+                    {DAYS.map((d) => {
                       const e = slotMap.get(`${d.key}__${s.id}`);
                       const selected = form.day === d.key && form.slotId === s.id;
 
@@ -757,28 +836,40 @@ export default function App() {
             <div className="muted">Δεν υπάρχουν καταχωρήσεις ακόμα.</div>
           ) : (
             <ul className="list">
-              {courseGroups.map(g => (
+              {courseGroups.map((g) => (
                 <li key={g.title} className="li">
                   <div className="liTitle">{g.title}</div>
 
-                  <div className="liMeta"><b>Καθηγητές:</b> {g.professors || "—"}</div>
+                  <div className="liMeta">
+                    <b>Καθηγητές:</b> {g.professors || "—"}
+                  </div>
+
                   <div className="liMeta">
                     <b>Σελίδα:</b>{" "}
                     {g.courseUrl ? (
-                      <a href={g.courseUrl} target="_blank" rel="noreferrer">{g.courseUrl}</a>
+                      <a href={g.courseUrl} target="_blank" rel="noreferrer">
+                        {g.courseUrl}
+                      </a>
                     ) : (
                       "—"
                     )}
                   </div>
 
-                  <div className="liMeta"><b>Ώρες/slots:</b></div>
+                  <div className="liMeta">
+                    <b>Ώρες/slots:</b>
+                  </div>
 
-                  {g.sessions.map(s => (
+                  {g.sessions.map((s) => (
                     <div key={s.id} className="sessionRow">
-                      <span>{dayLabel(s.day)} — {slotLabel(s.slotId, slots)}</span>
+                      <span>
+                        {dayLabel(s.day)} — {slotLabel(s.slotId, slots)}
+                      </span>
                       <span className="badge">{typeShort(s.classType)}</span>
                       <span className="room">{s.room || "—"}</span>
-                      <button className="mini danger" onClick={() => removeEntry(s.id)}>Διαγραφή slot</button>
+
+                      <button className="mini danger" onClick={() => removeEntry(s.id)}>
+                        Διαγραφή slot
+                      </button>
                     </div>
                   ))}
                 </li>
