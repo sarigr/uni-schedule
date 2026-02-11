@@ -47,7 +47,7 @@ const DEFAULT_SLOTS: SlotDef[] = [
   { id: "16-18", start: "16:00", end: "18:00", label: "16:00–18:00" },
 ];
 
-const ENTRIES_KEY = "uni-schedule:v2";
+const ENTRIES_KEY = "uni-schedule:v3";
 const SLOTS_KEY = "uni-schedule:slots:v1";
 
 /** ===== Helpers ===== */
@@ -116,9 +116,8 @@ function loadSlotsFromStorage(): { slots: SlotDef[]; isFirstTime: boolean } {
   }
 }
 
-/** Backward compatibility (v1 keys) */
 function loadEntriesFromStorage(): Entry[] {
-  const candidates = [ENTRIES_KEY, "uni-schedule:v1"];
+  const candidates = [ENTRIES_KEY, "uni-schedule:v2", "uni-schedule:v1"];
   for (const key of candidates) {
     const raw = localStorage.getItem(key);
     if (!raw) continue;
@@ -170,7 +169,7 @@ function loadEntriesFromStorage(): Entry[] {
       localStorage.setItem(ENTRIES_KEY, JSON.stringify(entries));
       return entries;
     } catch {
-      // try next
+      // try next key
     }
   }
 
@@ -213,7 +212,7 @@ function groupEntries(entries: Entry[], slots: SlotDef[]): CourseGroup[] {
   return [...map.values()].sort((a, b) => a.title.localeCompare(b.title, "el"));
 }
 
-/** ===== Export HTML (responsive + PDF print) ===== */
+/** ===== Export HTML (table scroll + list under) ===== */
 function buildExportHtml(entries: Entry[], slots: SlotDef[]) {
   const byKey = new Map<string, Entry>();
   for (const e of entries) byKey.set(`${e.day}__${e.slotId}`, e);
@@ -278,40 +277,6 @@ function buildExportHtml(entries: Entry[], slots: SlotDef[]) {
     })
     .join("");
 
-  // Mobile sections (ανά ημέρα)
-  const mobileDays = DAYS.map((d) => {
-    const cards = slots
-      .map((s) => {
-        const e = byKey.get(`${d.key}__${s.id}`);
-        if (!e) {
-          return `
-            <div class="mCard empty">
-              <div class="mSlot">${escapeHtml(s.label)}</div>
-              <div class="mMuted">—</div>
-            </div>
-          `;
-        }
-        return `
-          <div class="mCard">
-            <div class="mSlot">${escapeHtml(s.label)}</div>
-            <div class="mTitle">${escapeHtml(e.title)}</div>
-            <div class="mMeta">
-              <span class="badge">${typeShort(e.classType)}</span>
-              <span class="room">${escapeHtml(e.room || "—")}</span>
-            </div>
-          </div>
-        `;
-      })
-      .join("");
-
-    return `
-      <section class="mDay">
-        <h2 class="mDayTitle">${escapeHtml(d.label)}</h2>
-        <div class="mGrid">${cards}</div>
-      </section>
-    `;
-  }).join("");
-
   const now = new Date().toLocaleString("el-GR");
 
   return `<!doctype html>
@@ -333,7 +298,7 @@ function buildExportHtml(entries: Entry[], slots: SlotDef[]) {
     }
     body{
       font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial;
-      margin:20px;
+      margin:18px;
       color:var(--text);
       background:
         radial-gradient(900px 520px at 10% 0%, rgba(124,58,237,.22), transparent 58%),
@@ -345,9 +310,6 @@ function buildExportHtml(entries: Entry[], slots: SlotDef[]) {
     h1{margin:0 0 6px; font-size:22px; letter-spacing:.3px;}
     .sub{color:var(--muted); margin-bottom:14px; font-size:13px;}
 
-    /* Desktop table */
-    .desktopOnly{display:block;}
-    .mobileOnly{display:none;}
     .tableScroll{overflow:auto; -webkit-overflow-scrolling: touch; padding-bottom:6px;}
     table{width:100%; border-collapse:separate; border-spacing:10px; table-layout:fixed; min-width:860px;}
     th, td{vertical-align:top;}
@@ -357,17 +319,6 @@ function buildExportHtml(entries: Entry[], slots: SlotDef[]) {
     .empty{background: rgba(8,12,22,.35); border:1px dashed rgba(148,163,184,.25); box-shadow:none;}
     .cellTitle{font-weight:900; font-size:13px; margin-bottom:6px; letter-spacing:.2px;}
     .cellMeta{display:flex; gap:8px; align-items:center; font-size:12px; color:#cbd5e1;}
-
-    /* Mobile day cards */
-    .mDay{margin-top:14px;}
-    .mDayTitle{margin:10px 0; font-size:16px; letter-spacing:.2px;}
-    .mGrid{display:grid; grid-template-columns: 1fr; gap:10px;}
-    .mCard{background: rgba(8,12,22,.78); border:1px solid var(--border); border-radius:16px; padding:12px; box-shadow: var(--shadow);}
-    .mCard.empty{background: rgba(8,12,22,.35); border:1px dashed rgba(148,163,184,.25); box-shadow:none;}
-    .mSlot{color:var(--muted); font-size:12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
-    .mTitle{font-weight:950; margin-top:6px; font-size:14px;}
-    .mMeta{display:flex; gap:8px; align-items:center; margin-top:8px; color:#cbd5e1; font-size:13px;}
-    .mMuted{color:var(--muted); margin-top:6px;}
 
     hr{border:none; border-top:1px solid rgba(255,255,255,.10); margin:18px 0;}
     ul{list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:10px;}
@@ -380,30 +331,6 @@ function buildExportHtml(entries: Entry[], slots: SlotDef[]) {
     .sessionRow{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,.06); break-inside: avoid;}
     .badge{display:inline-flex; align-items:center; justify-content:center; padding:2px 8px; border-radius:999px; border:1px solid rgba(255,255,255,.14); background: rgba(15,23,42,.75); font-weight:950; font-size:12px;}
     .room{opacity:.9;}
-    .footer{margin-top:16px; color:var(--muted); font-size:12px;}
-
-    @media (max-width: 820px){
-      body{margin:14px;}
-      .desktopOnly{display:none;}
-      .mobileOnly{display:block;}
-      .wrap{max-width:680px;}
-    }
-
-    /* PDF print */
-    @page { size: A4; margin: 12mm; }
-    @media print{
-      :root{ color-scheme: light; }
-      body{ background:#fff !important; color:#111 !important; margin:0; }
-      .mobileOnly{display:none !important;}
-      .desktopOnly{display:block !important;}
-      table{min-width:0 !important; border-spacing:8px;}
-      .cell, .li{ background:#fff !important; box-shadow:none !important; border:1px solid #e5e7eb !important; color:#111 !important; }
-      .empty{ background:#fff !important; border:1px dashed #e5e7eb !important; }
-      .colHead, .rowHead, .sub, .footer, .liMeta{ color:#374151 !important; }
-      a{ color:#111 !important; text-decoration:underline; }
-      hr{ border-top:1px solid #e5e7eb !important; }
-      .badge{ background:#f3f4f6 !important; border:1px solid #e5e7eb !important; color:#111 !important; }
-    }
   </style>
 </head>
 <body>
@@ -411,24 +338,18 @@ function buildExportHtml(entries: Entry[], slots: SlotDef[]) {
     <h1>Εβδομαδιαίο Πρόγραμμα</h1>
     <div class="sub">Παραγωγή: ${escapeHtml(now)}</div>
 
-    <div class="desktopOnly">
-      <div class="tableScroll">
-        <table>
-          <thead>
-            <tr>
-              <th></th>
-              ${DAYS.map((d) => `<th class="colHead">${escapeHtml(d.label)}</th>`).join("")}
-            </tr>
-          </thead>
-          <tbody>
-            ${tableRows}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="mobileOnly">
-      ${mobileDays}
+    <div class="tableScroll">
+      <table>
+        <thead>
+          <tr>
+            <th></th>
+            ${DAYS.map((d) => `<th class="colHead">${escapeHtml(d.label)}</th>`).join("")}
+          </tr>
+        </thead>
+        <tbody>
+          ${tableRows}
+        </tbody>
+      </table>
     </div>
 
     <hr />
@@ -439,18 +360,7 @@ function buildExportHtml(entries: Entry[], slots: SlotDef[]) {
     <ul>
       ${listItems || `<li class="li"><span class="muted">Δεν υπάρχουν καταχωρήσεις.</span></li>`}
     </ul>
-
-    <div class="footer">Φτιάχτηκε από την εφαρμογή προγράμματος.</div>
   </div>
-
-  <script>
-    // Αν ανοίξει με #print → ανοίγει κατευθείαν το print dialog (PDF)
-    window.addEventListener("load", () => {
-      if (location.hash === "#print") {
-        setTimeout(() => window.print(), 200);
-      }
-    });
-  </script>
 </body>
 </html>`;
 }
@@ -466,8 +376,6 @@ export default function App() {
   const [slots, setSlots] = useState<SlotDef[]>(init.slots);
   const [showSlotsSetup, setShowSlotsSetup] = useState<boolean>(init.showSetup);
   const [entries, setEntries] = useState<Entry[]>(init.entries);
-
-  const [mobileDay, setMobileDay] = useState<Day>("Mon");
 
   const [form, setForm] = useState({
     title: "",
@@ -564,19 +472,18 @@ export default function App() {
     setEntries([]);
   }
 
-  function openExportPage(hash: "" | "#print" = "") {
+  function openExportPreview() {
     const html = buildExportHtml(entries, slots);
     const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-    const url = URL.createObjectURL(blob) + hash;
+    const url = URL.createObjectURL(blob);
 
     const w = window.open(url, "_blank");
     if (!w) {
-      URL.revokeObjectURL(url.replace("#print", ""));
+      URL.revokeObjectURL(url);
       return alert("Ο browser μπλόκαρε το νέο tab. Επίτρεψέ το και ξαναδοκίμασε.");
     }
 
-    // revoke after some time (safe)
-    setTimeout(() => URL.revokeObjectURL(url.replace("#print", "")), 8000);
+    setTimeout(() => URL.revokeObjectURL(url), 8000);
   }
 
   function downloadExportHtml() {
@@ -590,11 +497,6 @@ export default function App() {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-  }
-
-  // PDF = Print dialog (Save as PDF)
-  function exportPdf() {
-    openExportPage("#print");
   }
 
   function recomputeLabel(start: string, end: string) {
@@ -746,7 +648,7 @@ export default function App() {
     <div className="page">
       <header className="header">
         <h1>Εβδομαδιαίο Πρόγραμμα Μαθημάτων</h1>
-        <div className="sub">Σε κινητό: προβολή ανά ημέρα. Σε υπολογιστή: πλήρης πίνακας.</div>
+        <div className="sub">Σε κινητό: κάνεις scroll δεξιά–αριστερά στον πίνακα. Κλικ/Ταπ σε κελί για επιλογή slot.</div>
       </header>
 
       <div className="layout">
@@ -845,121 +747,69 @@ export default function App() {
             </button>
           </div>
 
+          {/* μόνο 2 κουμπιά ολοκλήρωσης */}
           <div className="exportRow">
-            <button className="btn" onClick={() => openExportPage("")}>
-              Export (HTML)
+            <button className="btn" onClick={openExportPreview}>
+              Προεπισκόπηση Export HTML
             </button>
             <button className="btn" onClick={downloadExportHtml}>
-              Λήψη HTML
-            </button>
-            <button className="btn" onClick={exportPdf}>
-              PDF (Print)
+              Λήψη HTML αρχείου
             </button>
           </div>
 
-          <div className="sub">
-            Στο PDF: θα ανοίξει Print → διάλεξε <b>Save as PDF</b>. (Σε κινητό: Share/Print → Save PDF.)
-          </div>
+          <div className="sub">Το export HTML θα έχει τον ίδιο πίνακα (με οριζόντιο scroll) και κάτω τη λίστα μαθημάτων.</div>
         </section>
 
         <section className="panel">
           <h2>Πρόγραμμα</h2>
 
-          {/* Desktop table */}
-          <div className="desktopOnly">
-            <div className="tableWrap">
-              <table className="timetable">
-                <thead>
-                  <tr>
-                    <th className="corner"></th>
-                    {DAYS.map((d) => (
-                      <th key={d.key} className="colHead">
-                        {d.label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {slots.map((s) => (
-                    <tr key={s.id}>
-                      <th className="rowHead">{s.label}</th>
-
-                      {DAYS.map((d) => {
-                        const e = slotMap.get(`${d.key}__${s.id}`);
-                        const selected = form.day === d.key && form.slotId === s.id;
-
-                        return (
-                          <td
-                            key={`${d.key}-${s.id}`}
-                            className={`cell ${e ? "filled" : "empty"} ${selected ? "selected" : ""}`}
-                            onClick={() => setDaySlot(d.key, s.id)}
-                            title="Κλικ για επιλογή ημέρας/ώρας στη φόρμα"
-                          >
-                            {e ? (
-                              <>
-                                <div className="cellTitle">{e.title}</div>
-                                <div className="cellMeta">
-                                  <span className="badge">{typeShort(e.classType)}</span>
-                                  <span className="room">{e.room || "—"}</span>
-                                </div>
-                              </>
-                            ) : (
-                              <div className="hint">Κλικ για επιλογή slot</div>
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
+          <div className="tableWrap">
+            <table className="timetable">
+              <thead>
+                <tr>
+                  <th className="corner"></th>
+                  {DAYS.map((d) => (
+                    <th key={d.key} className="colHead">
+                      {d.label}
+                    </th>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                </tr>
+              </thead>
 
-          {/* Mobile day view */}
-          <div className="mobileOnly">
-            <div className="dayTabs">
-              {DAYS.map((d) => (
-                <button
-                  key={d.key}
-                  className={`tab ${mobileDay === d.key ? "active" : ""}`}
-                  onClick={() => setMobileDay(d.key)}
-                >
-                  {d.label}
-                </button>
-              ))}
-            </div>
+              <tbody>
+                {slots.map((s) => (
+                  <tr key={s.id}>
+                    <th className="rowHead">{s.label}</th>
 
-            <div className="mobileGrid">
-              {slots.map((s) => {
-                const e = slotMap.get(`${mobileDay}__${s.id}`);
-                const selected = form.day === mobileDay && form.slotId === s.id;
-                return (
-                  <div
-                    key={s.id}
-                    className={`mCard ${e ? "" : "empty"} ${selected ? "selected" : ""}`}
-                    onClick={() => {
-                      setDaySlot(mobileDay, s.id);
-                      setForm((p) => ({ ...p, day: mobileDay, slotId: s.id }));
-                    }}
-                  >
-                    <div className="mSlot">{s.label}</div>
-                    {e ? (
-                      <>
-                        <div className="mTitle">{e.title}</div>
-                        <div className="mMeta">
-                          <span className="badge">{typeShort(e.classType)}</span>
-                          <span className="room">{e.room || "—"}</span>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="mMuted">Κενό slot (tap για επιλογή)</div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                    {DAYS.map((d) => {
+                      const e = slotMap.get(`${d.key}__${s.id}`);
+                      const selected = form.day === d.key && form.slotId === s.id;
+
+                      return (
+                        <td
+                          key={`${d.key}-${s.id}`}
+                          className={`cell ${e ? "filled" : "empty"} ${selected ? "selected" : ""}`}
+                          onClick={() => setDaySlot(d.key, s.id)}
+                          title="Κλικ για επιλογή ημέρας/ώρας στη φόρμα"
+                        >
+                          {e ? (
+                            <>
+                              <div className="cellTitle">{e.title}</div>
+                              <div className="cellMeta">
+                                <span className="badge">{typeShort(e.classType)}</span>
+                                <span className="room">{e.room || "—"}</span>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="hint">Κλικ για επιλογή slot</div>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
 
           <h2 className="mt">Λίστα μαθημάτων</h2>
