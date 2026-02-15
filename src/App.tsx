@@ -761,7 +761,7 @@ export default function App() {
       const targetIndex = slots.findIndex((s) => s.id === targetId);
       if (fromIndex < 0 || targetIndex < 0) return;
 
-      const insertIndex = insertAfter ? targetIndex + 1 : targetIndex;
+      
 
       // throttle-like: avoid repeating same insert target
       const signature = `${draggingSlotId}->${targetId}:${insertAfter ? "A" : "B"}`;
