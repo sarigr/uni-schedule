@@ -4,6 +4,7 @@ import "./App.css";
 /** ===== Types ===== */
 type Day = "Mon" | "Tue" | "Wed" | "Thu" | "Fri";
 type ClassType = "THEORY" | "LAB";
+type Theme = "dark" | "light";
 
 type SlotDef = {
   id: string;
@@ -52,6 +53,7 @@ const DEFAULT_SLOTS: SlotDef[] = [
 const SLOTS_KEY = "uni-schedule:slots:v1";
 const COURSES_KEY = "uni-schedule:courses:v1";
 const ENTRIES_KEY = "uni-schedule:entries:v1";
+const THEME_KEY = "uni-schedule:theme:v1";
 
 /** Legacy keys (migration) */
 const LEGACY_ENTRY_KEYS = ["uni-schedule:v3", "uni-schedule:v2", "uni-schedule:v1"];
@@ -195,7 +197,7 @@ function migrateLegacyIfNeeded(slots: SlotDef[]): { courses: Course[]; entries: 
       const data = JSON.parse(raw);
       if (!Array.isArray(data)) continue;
 
-      // old shape: {id,title,day,slotId or slot,classType,room,professors,courseUrl,createdAt}
+      // old shape: {id,title,day,slotId, classType, room, professors, courseUrl, createdAt}
       const coursesMap = new Map<string, Course>();
       const entries: Entry[] = [];
 
@@ -248,7 +250,6 @@ function migrateLegacyIfNeeded(slots: SlotDef[]): { courses: Course[]; entries: 
         });
       }
 
-      // filter entries with missing slots
       const slotIds = new Set(slots.map((s) => s.id));
       const filtered = entries.filter((e) => slotIds.has(e.slotId));
 
@@ -315,11 +316,10 @@ function groupByCourse(entries: Entry[], courses: Course[], slots: SlotDef[]) {
   return groups;
 }
 
-/** ===== Export HTML (table scroll + list + embedded backup) ===== */
-function buildExportHtml(slots: SlotDef[], courses: Course[], entries: Entry[]) {
+/** ===== Export HTML (table scroll + list + embedded backup + theme toggle) ===== */
+function buildExportHtml(slots: SlotDef[], courses: Course[], entries: Entry[], theme: Theme) {
   const courseMap = buildCourseMap(courses);
 
-  // Map schedule cells
   const byKey = new Map<string, Entry>();
   for (const e of entries) byKey.set(`${e.day}__${e.slotId}`, e);
 
@@ -357,9 +357,13 @@ function buildExportHtml(slots: SlotDef[], courses: Course[], entries: Entry[]) 
 
   const listItems = groups
     .map(({ course, sessions }) => {
-      const profPart = course.defaultProfessors?.trim() ? escapeHtml(course.defaultProfessors.trim()) : "—";
+      const profPart = course.defaultProfessors?.trim()
+        ? escapeHtml(course.defaultProfessors.trim())
+        : "—";
       const urlPart = course.courseUrl?.trim()
-        ? `<a href="${escapeHtml(course.courseUrl.trim())}" target="_blank" rel="noreferrer">${escapeHtml(course.courseUrl.trim())}</a>`
+        ? `<a href="${escapeHtml(course.courseUrl.trim())}" target="_blank" rel="noreferrer">${escapeHtml(
+            course.courseUrl.trim()
+          )}</a>`
         : `<span class="muted">—</span>`;
 
       const sessionsHtml = sessions
@@ -387,75 +391,121 @@ function buildExportHtml(slots: SlotDef[], courses: Course[], entries: Entry[]) 
     })
     .join("");
 
-  // Embedded backup (safe inside <script>)
   const backup = {
     app: "uni-schedule",
     version: 1,
     exportedAt: Date.now(),
+    theme,
     data: { slots, courses, entries },
   };
   const backupJson = JSON.stringify(backup).replace(/</g, "\\u003c");
-
   const now = new Date().toLocaleString("el-GR");
 
   return `<!doctype html>
-<html lang="el">
+<html lang="el" data-theme="${theme}">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Εβδομαδιαίο Πρόγραμμα</title>
   <style>
     :root{
+      --cyan:#22d3ee;
+      --pink:#ff2d55;
+      --purple:#7c3aed;
+      --shadow: 0 14px 42px rgba(0,0,0,.60);
+    }
+    html[data-theme="dark"]{
       color-scheme: dark;
       --bg0:#05070b;
       --bg1:#0b1020;
       --text:#e5e7eb;
       --muted:#94a3b8;
       --border: rgba(255,255,255,.10);
-      --blue:#22d3ee;
-      --shadow: 0 14px 42px rgba(0,0,0,.60);
+      --card: rgba(8,12,22,.78);
+      --card2: rgba(8,12,22,.68);
+      --empty: rgba(8,12,22,.35);
+      --dash: rgba(148,163,184,.25);
+      --btn: rgba(15,23,42,.75);
+    }
+    html[data-theme="light"]{
+      color-scheme: light;
+      --bg0:#f8fafc;
+      --bg1:#eef2ff;
+      --text:#0f172a;
+      --muted:#475569;
+      --border: rgba(15,23,42,.12);
+      --card: rgba(255,255,255,.88);
+      --card2: rgba(255,255,255,.75);
+      --empty: rgba(255,255,255,.55);
+      --dash: rgba(15,23,42,.18);
+      --btn: rgba(255,255,255,.92);
+      --shadow: 0 14px 42px rgba(2,6,23,.10);
     }
     body{
       font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial;
       margin:18px;
       color:var(--text);
       background:
-        radial-gradient(900px 520px at 10% 0%, rgba(124,58,237,.22), transparent 58%),
-        radial-gradient(780px 480px at 90% 10%, rgba(255,45,85,.18), transparent 58%),
-        radial-gradient(920px 640px at 50% 120%, rgba(34,211,238,.10), transparent 58%),
+        radial-gradient(900px 520px at 10% 0%, rgba(124,58,237,.18), transparent 58%),
+        radial-gradient(780px 480px at 90% 10%, rgba(255,45,85,.14), transparent 58%),
+        radial-gradient(920px 640px at 50% 120%, rgba(34,211,238,.08), transparent 58%),
         linear-gradient(180deg, var(--bg0), var(--bg1));
     }
     .wrap{max-width:1100px; margin:0 auto;}
     h1{margin:0 0 6px; font-size:22px; letter-spacing:.3px;}
     .sub{color:var(--muted); margin-bottom:14px; font-size:13px;}
 
+    .topBar{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom:10px;
+    }
+    .tbtn{
+      border:1px solid var(--border);
+      background: var(--btn);
+      color: var(--text);
+      padding:10px 12px;
+      border-radius:12px;
+      cursor:pointer;
+      font-weight:900;
+    }
+    .tbtn:hover{ border-color: rgba(34,211,238,.35); }
+
     .tableScroll{overflow:auto; -webkit-overflow-scrolling: touch; padding-bottom:6px;}
     table{width:100%; border-collapse:separate; border-spacing:10px; table-layout:fixed; min-width:860px;}
     th, td{vertical-align:top;}
     .colHead{font-size:12.5px; color:var(--muted); text-align:left; padding-left:4px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
     .rowHead{font-size:12px; color:var(--muted); text-align:right; padding-right:6px; width:140px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
-    .cell{background: rgba(8,12,22,.78); border:1px solid var(--border); border-radius:16px; padding:10px; min-height:68px; box-shadow: var(--shadow);}
-    .empty{background: rgba(8,12,22,.35); border:1px dashed rgba(148,163,184,.25); box-shadow:none;}
-    .cellTitle{font-weight:900; font-size:13px; margin-bottom:6px; letter-spacing:.2px;}
-    .cellMeta{display:flex; gap:8px; align-items:center; font-size:12px; color:#cbd5e1;}
 
-    hr{border:none; border-top:1px solid rgba(255,255,255,.10); margin:18px 0;}
+    .cell{background: var(--card); border:1px solid var(--border); border-radius:16px; padding:10px; min-height:68px; box-shadow: var(--shadow);}
+    .empty{background: var(--empty); border:1px dashed var(--dash); box-shadow:none;}
+    .cellTitle{font-weight:900; font-size:13px; margin-bottom:6px; letter-spacing:.2px;}
+    .cellMeta{display:flex; gap:8px; align-items:center; font-size:12px; color: color-mix(in srgb, var(--text) 80%, var(--muted));}
+
+    hr{border:none; border-top:1px solid color-mix(in srgb, var(--border) 70%, transparent); margin:18px 0;}
     ul{list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:10px;}
-    .li{background: rgba(8,12,22,.68); border:1px solid var(--border); border-radius:16px; padding:12px; box-shadow: var(--shadow); break-inside: avoid;}
+    .li{background: var(--card2); border:1px solid var(--border); border-radius:16px; padding:12px; box-shadow: var(--shadow); break-inside: avoid;}
     .liTitle{font-weight:950; margin-bottom:6px; letter-spacing:.2px;}
-    .liMeta{font-size:13px; color:#cbd5e1; margin-top:6px;}
+    .liMeta{font-size:13px; color: color-mix(in srgb, var(--text) 82%, var(--muted)); margin-top:6px;}
     .muted{color:var(--muted);}
-    a{color: var(--blue); text-decoration:none;}
+    a{color: var(--cyan); text-decoration:none;}
     a:hover{text-decoration:underline;}
-    .sessionRow{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,.06); break-inside: avoid;}
-    .badge{display:inline-flex; align-items:center; justify-content:center; padding:2px 8px; border-radius:999px; border:1px solid rgba(255,255,255,.14); background: rgba(15,23,42,.75); font-weight:950; font-size:12px;}
+    .sessionRow{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; padding-top:8px; border-top:1px solid color-mix(in srgb, var(--border) 70%, transparent); break-inside: avoid;}
+    .badge{display:inline-flex; align-items:center; justify-content:center; padding:2px 8px; border-radius:999px; border:1px solid color-mix(in srgb, var(--border) 90%, transparent); background: color-mix(in srgb, var(--btn) 85%, transparent); font-weight:950; font-size:12px;}
     .room{opacity:.9;}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>Εβδομαδιαίο Πρόγραμμα</h1>
-    <div class="sub">Παραγωγή: ${escapeHtml(now)}</div>
+    <div class="topBar">
+      <div>
+        <h1>Εβδομαδιαίο Πρόγραμμα</h1>
+        <div class="sub">Παραγωγή: ${escapeHtml(now)}</div>
+      </div>
+      <button id="themeToggle" class="tbtn" type="button">Toggle</button>
+    </div>
 
     <div class="tableScroll">
       <table>
@@ -483,12 +533,60 @@ function buildExportHtml(slots: SlotDef[], courses: Course[], entries: Entry[]) 
 
   <!-- Embedded backup (for restore inside the app) -->
   <script id="uniScheduleBackup" type="application/json">${backupJson}</script>
+
+  <script>
+  (function(){
+    const KEY = "${THEME_KEY}";
+    const root = document.documentElement;
+
+    function apply(t){
+      root.setAttribute("data-theme", t);
+      root.style.colorScheme = t;
+      const btn = document.getElementById("themeToggle");
+      if(btn) btn.textContent = (t === "dark") ? "Light mode" : "Dark mode";
+    }
+
+    const saved = localStorage.getItem(KEY);
+    const initial =
+      (saved === "light" || saved === "dark")
+        ? saved
+        : (root.getAttribute("data-theme") || "dark");
+
+    apply(initial);
+
+    const btn = document.getElementById("themeToggle");
+    if(btn){
+      btn.addEventListener("click", function(){
+        const cur = root.getAttribute("data-theme") === "dark" ? "dark" : "light";
+        const next = (cur === "dark") ? "light" : "dark";
+        localStorage.setItem(KEY, next);
+        apply(next);
+      });
+    }
+  })();
+  </script>
 </body>
 </html>`;
 }
 
 /** ===== App ===== */
 export default function App() {
+  /** Theme */
+  const [theme, setTheme] = useState<Theme>(() => {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === "light" || saved === "dark") return saved;
+    const prefersLight = window.matchMedia?.("(prefers-color-scheme: light)")?.matches;
+    return prefersLight ? "light" : "dark";
+  });
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    (document.documentElement as any).style.colorScheme = theme;
+    localStorage.setItem(THEME_KEY, theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
+
   const [init] = useState(() => {
     const s = loadSlotsFromStorage();
     const mig = migrateLegacyIfNeeded(s.slots);
@@ -511,7 +609,6 @@ export default function App() {
   const [showSlotsSetup, setShowSlotsSetup] = useState<boolean>(init.showSlotsSetup);
   const [showCoursesSetup, setShowCoursesSetup] = useState<boolean>(init.showCoursesSetup);
 
-  // Export/Restore input
   const restoreInputRef = useRef<HTMLInputElement | null>(null);
 
   // Drag reorder state for sessions
@@ -531,15 +628,6 @@ export default function App() {
     localStorage.setItem(ENTRIES_KEY, JSON.stringify(entries));
   }, [entries]);
 
-  // Ensure form slot exists
-  useEffect(() => {
-    if (slots.length === 0) return;
-    if (!slots.some((s) => s.id === form.slotId)) {
-      setForm((p) => ({ ...p, slotId: slots[0].id }));
-    }
-  }, [slots]);
-
-  // Build fast maps
   const courseMap = useMemo(() => buildCourseMap(courses), [courses]);
 
   const slotMap = useMemo(() => {
@@ -561,6 +649,15 @@ export default function App() {
     courseUrl: "",
   });
 
+  // Ensure form slot exists
+  useEffect(() => {
+    if (slots.length === 0) return;
+    if (!slots.some((s) => s.id === form.slotId)) {
+      setForm((p) => ({ ...p, slotId: slots[0].id }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slots]);
+
   // If course list changes, keep a valid selection
   useEffect(() => {
     if (courses.length === 0) {
@@ -570,6 +667,7 @@ export default function App() {
     if (!courses.some((c) => c.id === form.courseId)) {
       setForm((p) => ({ ...p, courseId: courses[0].id }));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courses]);
 
   // When course selection changes, preload defaults into fields
@@ -578,7 +676,6 @@ export default function App() {
     const c = courseMap.get(form.courseId);
     if (!c) return;
 
-    // only set if fields are empty OR if user switched course
     setForm((p) => ({
       ...p,
       room: c.defaultRoom || "",
@@ -656,7 +753,7 @@ export default function App() {
   }
 
   function openExportPreview() {
-    const html = buildExportHtml(slots, courses, entries);
+    const html = buildExportHtml(slots, courses, entries, theme);
     const blob = new Blob([html], { type: "text/html;charset=utf-8" });
     const url = URL.createObjectURL(blob);
 
@@ -670,7 +767,7 @@ export default function App() {
   }
 
   function downloadExportHtml() {
-    const html = buildExportHtml(slots, courses, entries);
+    const html = buildExportHtml(slots, courses, entries, theme);
     const blob = new Blob([html], { type: "text/html;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -711,6 +808,10 @@ export default function App() {
       return;
     }
 
+    if (backup.theme === "light" || backup.theme === "dark") {
+      setTheme(backup.theme);
+    }
+
     const slotsN = normalizeSlots(backup.data.slots);
     const coursesN = normalizeCourses(backup.data.courses);
     const entriesN = normalizeEntries(backup.data.entries);
@@ -720,12 +821,12 @@ export default function App() {
       return;
     }
 
-    // filter entries with missing slots/courses
     const slotIds = new Set(slotsN.map((s) => s.id));
     const courseIds = new Set(coursesN.map((c) => c.id));
     const entriesFiltered = entriesN.filter((e) => slotIds.has(e.slotId) && courseIds.has(e.courseId));
 
-    const exportedAt = typeof backup.exportedAt === "number" ? new Date(backup.exportedAt).toLocaleString("el-GR") : "άγνωστο";
+    const exportedAt =
+      typeof backup.exportedAt === "number" ? new Date(backup.exportedAt).toLocaleString("el-GR") : "άγνωστο";
 
     const ok = confirm(
       `Θα γίνει ΕΠΑΝΑΦΟΡΑ από HTML backup.\n\nΗμερομηνία export: ${exportedAt}\n\nΘες να αντικατασταθούν τα τωρινά δεδομένα;`
@@ -757,13 +858,6 @@ export default function App() {
       const rect = row.getBoundingClientRect();
       const insertAfter = ev.clientY > rect.top + rect.height / 2;
 
-      const fromIndex = slots.findIndex((s) => s.id === draggingSlotId);
-      const targetIndex = slots.findIndex((s) => s.id === targetId);
-      if (fromIndex < 0 || targetIndex < 0) return;
-
-      
-
-      // throttle-like: avoid repeating same insert target
       const signature = `${draggingSlotId}->${targetId}:${insertAfter ? "A" : "B"}`;
       if (lastInsertRef.current === signature) return;
       lastInsertRef.current = signature;
@@ -772,6 +866,7 @@ export default function App() {
         const from = prev.findIndex((s) => s.id === draggingSlotId);
         const t = prev.findIndex((s) => s.id === targetId);
         if (from < 0 || t < 0) return prev;
+
         const ins = insertAfter ? t + 1 : t;
         return moveItemInsert(prev, from, ins);
       });
@@ -794,7 +889,7 @@ export default function App() {
       window.removeEventListener("pointercancel", onUp);
       document.body.classList.remove("noSelect");
     };
-  }, [draggingSlotId, slots]);
+  }, [draggingSlotId]);
 
   function recomputeLabel(start: string, end: string) {
     return `${start}–${end}`;
@@ -837,7 +932,11 @@ export default function App() {
 
   function updateCourse(id: string, patch: Partial<Course>) {
     setCourses((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, ...patch, title: (patch.title ?? c.title).trim() } : c))
+      prev.map((c) => {
+        if (c.id !== id) return c;
+        const nextTitle = (patch.title ?? c.title).trim();
+        return { ...c, ...patch, title: nextTitle };
+      })
     );
   }
 
@@ -863,7 +962,12 @@ export default function App() {
     return (
       <div className="page">
         <header className="header">
-          <h1>Ρύθμιση Sessions (Ωρών)</h1>
+          <div className="headerRow">
+            <h1>Ρύθμιση Sessions (Ωρών)</h1>
+            <button className="btn themeBtn" onClick={toggleTheme}>
+              {theme === "dark" ? "Light" : "Dark"}
+            </button>
+          </div>
           <div className="sub">
             Πρόσθεσε/ρύθμισε τις ώρες του πίνακα. Για αλλαγή σειράς: <b>κράτα πατημένο</b> στο ⋮⋮ και <b>σύρε</b>.
           </div>
@@ -884,11 +988,7 @@ export default function App() {
                   data-id={s.id}
                 >
                   <div className="slotRowTop">
-                    <div
-                      className="dragHandle"
-                      title="Σύρε για αλλαγή σειράς"
-                      onPointerDown={() => setDraggingSlotId(s.id)}
-                    >
+                    <div className="dragHandle" title="Σύρε για αλλαγή σειράς" onPointerDown={() => setDraggingSlotId(s.id)}>
                       ⋮⋮
                     </div>
                     <div className="liTitle">Session: {s.label}</div>
@@ -944,7 +1044,6 @@ export default function App() {
                     if (!isHHMM(s.start) || !isHHMM(s.end)) return alert("Διόρθωσε ώρες σε μορφή HH:MM (π.χ. 09:00).");
                   }
                   setShowSlotsSetup(false);
-                  // αν δεν υπάρχουν μαθήματα, πάμε κατευθείαν στο Courses screen
                   setShowCoursesSetup(loadCoursesFromStorage().length === 0);
                 }}
               >
@@ -964,7 +1063,12 @@ export default function App() {
     return (
       <div className="page">
         <header className="header">
-          <h1>Μαθήματα (Courses)</h1>
+          <div className="headerRow">
+            <h1>Μαθήματα (Courses)</h1>
+            <button className="btn themeBtn" onClick={toggleTheme}>
+              {theme === "dark" ? "Light" : "Dark"}
+            </button>
+          </div>
           <div className="sub">
             Πρόσθεσε τα μαθήματα μία φορά, με <b>default</b> αίθουσα/καθηγητές/σελίδα. Μετά θα τα “βάζεις” στον πίνακα.
           </div>
@@ -986,7 +1090,6 @@ export default function App() {
                   const hasBad = courses.some((c) => !c.title.trim());
                   if (hasBad) return alert("Κάποιο μάθημα δεν έχει τίτλο. Διόρθωσέ το.");
                   setShowCoursesSetup(false);
-                  // προεπιλογή φόρμας
                   setForm((p) => ({ ...p, courseId: p.courseId || courses[0].id }));
                 }}
               >
@@ -1057,7 +1160,12 @@ export default function App() {
   return (
     <div className="page">
       <header className="header">
-        <h1>Εβδομαδιαίο Πρόγραμμα Μαθημάτων</h1>
+        <div className="headerRow">
+          <h1>Εβδομαδιαίο Πρόγραμμα Μαθημάτων</h1>
+          <button className="btn themeBtn" onClick={toggleTheme}>
+            {theme === "dark" ? "Light" : "Dark"}
+          </button>
+        </div>
         <div className="sub">
           Σε κινητό: σύρε δεξιά–αριστερά τον πίνακα. Τα export HTML περιέχουν και backup για επαναφορά.
         </div>
@@ -1085,10 +1193,7 @@ export default function App() {
               <div className="formGrid">
                 <label className="span2">
                   Μάθημα *
-                  <select
-                    value={form.courseId}
-                    onChange={(e) => setForm((p) => ({ ...p, courseId: e.target.value }))}
-                  >
+                  <select value={form.courseId} onChange={(e) => setForm((p) => ({ ...p, courseId: e.target.value }))}>
                     {courses
                       .slice()
                       .sort((a, b) => a.title.localeCompare(b.title, "el"))
@@ -1102,10 +1207,7 @@ export default function App() {
 
                 <label>
                   Τύπος (Θ/Ε) *
-                  <select
-                    value={form.classType}
-                    onChange={(e) => setForm((p) => ({ ...p, classType: e.target.value as ClassType }))}
-                  >
+                  <select value={form.classType} onChange={(e) => setForm((p) => ({ ...p, classType: e.target.value as ClassType }))}>
                     <option value="THEORY">Θεωρία (Θ)</option>
                     <option value="LAB">Εργαστήριο (Ε)</option>
                   </select>
@@ -1124,10 +1226,7 @@ export default function App() {
 
                 <label>
                   Session *
-                  <select
-                    value={form.slotId}
-                    onChange={(e) => setForm((p) => ({ ...p, slotId: e.target.value }))}
-                  >
+                  <select value={form.slotId} onChange={(e) => setForm((p) => ({ ...p, slotId: e.target.value }))}>
                     {slots.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.label}
@@ -1141,7 +1240,7 @@ export default function App() {
                   <input
                     value={form.room}
                     onChange={(e) => setForm((p) => ({ ...p, room: e.target.value }))}
-                    placeholder="(αν το αφήσεις ίδιο, είναι το default)"
+                    placeholder="(default από το μάθημα)"
                   />
                 </label>
 
@@ -1205,10 +1304,7 @@ export default function App() {
                   Αν χαθούν τα δεδομένα της master συσκευής: κάνεις <b>Επαναφορά</b> από το HTML που είχες κατεβάσει.
                 </div>
                 <div className="btnRow">
-                  <button
-                    className="btn"
-                    onClick={() => restoreInputRef.current?.click()}
-                  >
+                  <button className="btn" onClick={() => restoreInputRef.current?.click()}>
                     Επαναφορά από HTML backup
                   </button>
                 </div>
