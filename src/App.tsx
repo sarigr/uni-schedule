@@ -1167,7 +1167,7 @@ export default function App() {
           </button>
         </div>
         <div className="sub">
-          Σε κινητό: σύρε δεξιά–αριστερά τον πίνακα. Τα export HTML περιέχουν και backup για επαναφορά.
+          Τα export HTML περιέχουν και backup για επαναφορά.
         </div>
       </header>
 
