@@ -5,6 +5,7 @@ import "./App.css";
 type Day = "Mon" | "Tue" | "Wed" | "Thu" | "Fri";
 type ClassType = "THEORY" | "LAB";
 type Theme = "dark" | "light";
+type ExportSkin = "default" | "lotr";
 
 type SlotDef = {
   id: string;
@@ -54,6 +55,7 @@ const SLOTS_KEY = "uni-schedule:slots:v1";
 const COURSES_KEY = "uni-schedule:courses:v1";
 const ENTRIES_KEY = "uni-schedule:entries:v1";
 const THEME_KEY = "uni-schedule:theme:v1";
+const EXPORT_SKIN_KEY = "uni-schedule:export-skin:v1";
 
 /** Legacy keys (migration) */
 const LEGACY_ENTRY_KEYS = ["uni-schedule:v3", "uni-schedule:v2", "uni-schedule:v1"];
@@ -266,12 +268,6 @@ function migrateLegacyIfNeeded(slots: SlotDef[]): { courses: Course[]; entries: 
   return { courses: [], entries: [] };
 }
 
-function buildSlotIndex(slots: SlotDef[]) {
-  const idx = new Map<string, number>();
-  slots.forEach((s, i) => idx.set(s.id, i));
-  return idx;
-}
-
 function moveItemInsert<T>(arr: T[], fromIndex: number, insertIndex: number) {
   const copy = [...arr];
   const [item] = copy.splice(fromIndex, 1);
@@ -291,7 +287,8 @@ function buildCourseMap(courses: Course[]) {
 
 function groupByCourse(entries: Entry[], courses: Course[], slots: SlotDef[]) {
   const courseMap = buildCourseMap(courses);
-  const slotIdx = buildSlotIndex(slots);
+  const slotIdx = new Map<string, number>();
+  slots.forEach((s, i) => slotIdx.set(s.id, i));
   const dayOrder = (d: Day) => DAYS.findIndex((x) => x.key === d);
   const slotOrder = (slotId: string) => slotIdx.get(slotId) ?? 9999;
 
@@ -317,7 +314,13 @@ function groupByCourse(entries: Entry[], courses: Course[], slots: SlotDef[]) {
 }
 
 /** ===== Export HTML (table scroll + list + embedded backup + theme toggle) ===== */
-function buildExportHtml(slots: SlotDef[], courses: Course[], entries: Entry[], theme: Theme) {
+function buildExportHtml(
+  slots: SlotDef[],
+  courses: Course[],
+  entries: Entry[],
+  theme: Theme,
+  skin: ExportSkin
+) {
   const courseMap = buildCourseMap(courses);
 
   const byKey = new Map<string, Entry>();
@@ -396,10 +399,224 @@ function buildExportHtml(slots: SlotDef[], courses: Course[], entries: Entry[], 
     version: 1,
     exportedAt: Date.now(),
     theme,
+    skin,
     data: { slots, courses, entries },
   };
   const backupJson = JSON.stringify(backup).replace(/</g, "\\u003c");
   const now = new Date().toLocaleString("el-GR");
+
+  // DEFAULT export CSS (μένει όπως ήταν – dark/rocky-ish)
+  const EXPORT_CSS_DEFAULT = `
+:root{
+  --cyan:#22d3ee;
+  --pink:#ff2d55;
+  --purple:#7c3aed;
+  --shadow: 0 14px 42px rgba(0,0,0,.60);
+}
+html[data-theme="dark"]{
+  color-scheme: dark;
+  --bg0:#05070b;
+  --bg1:#0b1020;
+  --text:#e5e7eb;
+  --muted:#94a3b8;
+  --border: rgba(255,255,255,.10);
+  --card: rgba(8,12,22,.78);
+  --card2: rgba(8,12,22,.68);
+  --empty: rgba(8,12,22,.35);
+  --dash: rgba(148,163,184,.25);
+  --btn: rgba(15,23,42,.75);
+}
+html[data-theme="light"]{
+  color-scheme: light;
+  --bg0:#f8fafc;
+  --bg1:#eef2ff;
+  --text:#0f172a;
+  --muted:#475569;
+  --border: rgba(15,23,42,.12);
+  --card: rgba(255,255,255,.88);
+  --card2: rgba(255,255,255,.75);
+  --empty: rgba(255,255,255,.55);
+  --dash: rgba(15,23,42,.18);
+  --btn: rgba(255,255,255,.92);
+  --shadow: 0 14px 42px rgba(2,6,23,.10);
+}
+body{
+  font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial;
+  margin:18px;
+  color:var(--text);
+  background:
+    radial-gradient(900px 520px at 10% 0%, rgba(124,58,237,.18), transparent 58%),
+    radial-gradient(780px 480px at 90% 10%, rgba(255,45,85,.14), transparent 58%),
+    radial-gradient(920px 640px at 50% 120%, rgba(34,211,238,.08), transparent 58%),
+    linear-gradient(180deg, var(--bg0), var(--bg1));
+}
+.wrap{max-width:1100px; margin:0 auto;}
+h1{margin:0 0 6px; font-size:22px; letter-spacing:.3px;}
+.sub{color:var(--muted); margin-bottom:14px; font-size:13px;}
+
+.topBar{display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:10px;}
+.tbtn{
+  border:1px solid var(--border);
+  background: var(--btn);
+  color: var(--text);
+  padding:10px 12px;
+  border-radius:12px;
+  cursor:pointer;
+  font-weight:900;
+}
+.tbtn:hover{ border-color: rgba(34,211,238,.35); }
+
+.tableScroll{overflow:auto; -webkit-overflow-scrolling: touch; padding-bottom:6px;}
+table{width:100%; border-collapse:separate; border-spacing:10px; table-layout:fixed; min-width:860px;}
+th, td{vertical-align:top;}
+.colHead,.rowHead{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  color:var(--muted);
+}
+.colHead{font-size:12.5px; text-align:left; padding-left:4px;}
+.rowHead{font-size:12px; text-align:right; padding-right:6px; width:140px;}
+
+.cell{background: var(--card); border:1px solid var(--border); border-radius:16px; padding:10px; min-height:68px; box-shadow: var(--shadow);}
+.empty{background: var(--empty); border:1px dashed var(--dash); box-shadow:none;}
+.cellTitle{font-weight:900; font-size:13px; margin-bottom:6px; letter-spacing:.2px;}
+.cellMeta{display:flex; gap:8px; align-items:center; font-size:12px; color: color-mix(in srgb, var(--text) 80%, var(--muted));}
+
+hr{border:none; border-top:1px solid color-mix(in srgb, var(--border) 70%, transparent); margin:18px 0;}
+ul{list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:10px;}
+.li{background: var(--card2); border:1px solid var(--border); border-radius:16px; padding:12px; box-shadow: var(--shadow); break-inside: avoid;}
+.liTitle{font-weight:950; margin-bottom:6px; letter-spacing:.2px;}
+.liMeta{font-size:13px; color: color-mix(in srgb, var(--text) 82%, var(--muted)); margin-top:6px;}
+.muted{color:var(--muted);}
+a{color: var(--cyan); text-decoration:none;}
+a:hover{text-decoration:underline;}
+.sessionRow{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; padding-top:8px; border-top:1px solid color-mix(in srgb, var(--border) 70%, transparent); break-inside: avoid;}
+.badge{display:inline-flex; align-items:center; justify-content:center; padding:2px 8px; border-radius:999px; border:1px solid color-mix(in srgb, var(--border) 90%, transparent); background: color-mix(in srgb, var(--btn) 85%, transparent); font-weight:950; font-size:12px;}
+.room{opacity:.9;}
+`;
+
+  // LOTR export CSS (μόνο για export)
+  const EXPORT_CSS_LOTR = `
+:root{
+  --gold:#d4af37;
+  --olive:#2f3b2f;
+  --ink:#1e1a12;
+  --shadow: 0 18px 46px rgba(0,0,0,.35);
+}
+html[data-theme="dark"]{
+  color-scheme: dark;
+  --bg0:#070a06;
+  --bg1:#10140e;
+  --text:#efe7d6;
+  --muted:#b9b0a0;
+
+  --border: rgba(212,175,55,.22);
+  --dash: rgba(185,176,160,.22);
+
+  --card: rgba(20,26,18,.76);
+  --card2: rgba(20,26,18,.62);
+  --empty: rgba(20,26,18,.34);
+
+  --btn: rgba(20,26,18,.72);
+}
+html[data-theme="light"]{
+  color-scheme: light;
+  --bg0:#fbf2dc;
+  --bg1:#f1e5c4;
+  --text:#1e1a12;
+  --muted:#5b5246;
+
+  --border: rgba(47,59,47,.22);
+  --dash: rgba(30,26,18,.16);
+
+  --card: rgba(255,255,255,.78);
+  --card2: rgba(255,255,255,.66);
+  --empty: rgba(255,255,255,.52);
+
+  --btn: rgba(255,255,255,.90);
+}
+body{
+  font-family: ui-serif, Georgia, "Times New Roman", serif;
+  margin:18px;
+  color:var(--text);
+  background:
+    radial-gradient(900px 520px at 12% 0%, rgba(212,175,55,.10), transparent 58%),
+    radial-gradient(800px 520px at 88% 8%, rgba(47,59,47,.12), transparent 60%),
+    linear-gradient(180deg, var(--bg0), var(--bg1));
+}
+body::after{
+  content:"";
+  position: fixed;
+  inset:0;
+  pointer-events:none;
+  opacity:.10;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.35'/%3E%3C/svg%3E");
+  mix-blend-mode: multiply;
+}
+.wrap{max-width:1100px; margin:0 auto;}
+h1{margin:0 0 6px; font-size:22px; letter-spacing:.6px; font-weight:900;}
+.sub{color:var(--muted); margin-bottom:14px; font-size:13px;}
+
+.topBar{display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:10px;}
+.tbtn{
+  border:1px solid var(--border);
+  background: var(--btn);
+  color: var(--text);
+  padding:10px 12px;
+  border-radius:14px;
+  cursor:pointer;
+  font-weight:900;
+}
+.tbtn:hover{border-color: rgba(212,175,55,.45);}
+
+.tableScroll{overflow:auto; -webkit-overflow-scrolling: touch; padding-bottom:6px;}
+table{width:100%; border-collapse:separate; border-spacing:10px; table-layout:fixed; min-width:860px;}
+th, td{vertical-align:top;}
+.colHead,.rowHead{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  color:var(--muted);
+}
+.colHead{font-size:12.5px; text-align:left; padding-left:4px;}
+.rowHead{font-size:12px; text-align:right; padding-right:6px; width:140px;}
+
+.cell{
+  border-radius:18px;
+  padding:10px;
+  min-height:68px;
+  border:1px solid var(--border);
+  background:
+    radial-gradient(220px 120px at 20% 10%, rgba(212,175,55,.10), transparent 55%),
+    linear-gradient(180deg, var(--card), rgba(0,0,0,0));
+  box-shadow: var(--shadow);
+}
+.empty{
+  background: var(--empty);
+  border:1px dashed var(--dash);
+  box-shadow:none;
+}
+.cellTitle{font-weight:900; font-size:13px; margin-bottom:6px; letter-spacing:.25px;}
+.cellMeta{display:flex; gap:8px; align-items:center; font-size:12px; color: color-mix(in srgb, var(--text) 80%, var(--muted));}
+.badge{
+  display:inline-flex; align-items:center; justify-content:center;
+  padding:2px 8px; border-radius:999px;
+  border:1px solid var(--border);
+  background: rgba(212,175,55,.10);
+  font-weight:900; font-size:12px;
+}
+.room{opacity:.9;}
+
+hr{border:none; border-top:1px solid rgba(212,175,55,.18); margin:18px 0;}
+ul{list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:10px;}
+.li{background: var(--card2); border:1px solid var(--border); border-radius:18px; padding:12px; box-shadow: var(--shadow); break-inside: avoid;}
+.liTitle{font-weight:900; margin-bottom:6px; letter-spacing:.25px;}
+.liMeta{font-size:13px; color: color-mix(in srgb, var(--text) 82%, var(--muted)); margin-top:6px;}
+.muted{color:var(--muted);}
+a{color: var(--olive); text-decoration:none; font-weight:800;}
+a:hover{text-decoration:underline;}
+.sessionRow{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; padding-top:8px; border-top:1px solid rgba(212,175,55,.14); break-inside: avoid;}
+`;
+
+  const exportCss = skin === "lotr" ? EXPORT_CSS_LOTR : EXPORT_CSS_DEFAULT;
 
   return `<!doctype html>
 <html lang="el" data-theme="${theme}">
@@ -408,93 +625,7 @@ function buildExportHtml(slots: SlotDef[], courses: Course[], entries: Entry[], 
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Εβδομαδιαίο Πρόγραμμα</title>
   <style>
-    :root{
-      --cyan:#22d3ee;
-      --pink:#ff2d55;
-      --purple:#7c3aed;
-      --shadow: 0 14px 42px rgba(0,0,0,.60);
-    }
-    html[data-theme="dark"]{
-      color-scheme: dark;
-      --bg0:#05070b;
-      --bg1:#0b1020;
-      --text:#e5e7eb;
-      --muted:#94a3b8;
-      --border: rgba(255,255,255,.10);
-      --card: rgba(8,12,22,.78);
-      --card2: rgba(8,12,22,.68);
-      --empty: rgba(8,12,22,.35);
-      --dash: rgba(148,163,184,.25);
-      --btn: rgba(15,23,42,.75);
-    }
-    html[data-theme="light"]{
-      color-scheme: light;
-      --bg0:#f8fafc;
-      --bg1:#eef2ff;
-      --text:#0f172a;
-      --muted:#475569;
-      --border: rgba(15,23,42,.12);
-      --card: rgba(255,255,255,.88);
-      --card2: rgba(255,255,255,.75);
-      --empty: rgba(255,255,255,.55);
-      --dash: rgba(15,23,42,.18);
-      --btn: rgba(255,255,255,.92);
-      --shadow: 0 14px 42px rgba(2,6,23,.10);
-    }
-    body{
-      font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial;
-      margin:18px;
-      color:var(--text);
-      background:
-        radial-gradient(900px 520px at 10% 0%, rgba(124,58,237,.18), transparent 58%),
-        radial-gradient(780px 480px at 90% 10%, rgba(255,45,85,.14), transparent 58%),
-        radial-gradient(920px 640px at 50% 120%, rgba(34,211,238,.08), transparent 58%),
-        linear-gradient(180deg, var(--bg0), var(--bg1));
-    }
-    .wrap{max-width:1100px; margin:0 auto;}
-    h1{margin:0 0 6px; font-size:22px; letter-spacing:.3px;}
-    .sub{color:var(--muted); margin-bottom:14px; font-size:13px;}
-
-    .topBar{
-      display:flex;
-      align-items:flex-start;
-      justify-content:space-between;
-      gap:12px;
-      margin-bottom:10px;
-    }
-    .tbtn{
-      border:1px solid var(--border);
-      background: var(--btn);
-      color: var(--text);
-      padding:10px 12px;
-      border-radius:12px;
-      cursor:pointer;
-      font-weight:900;
-    }
-    .tbtn:hover{ border-color: rgba(34,211,238,.35); }
-
-    .tableScroll{overflow:auto; -webkit-overflow-scrolling: touch; padding-bottom:6px;}
-    table{width:100%; border-collapse:separate; border-spacing:10px; table-layout:fixed; min-width:860px;}
-    th, td{vertical-align:top;}
-    .colHead{font-size:12.5px; color:var(--muted); text-align:left; padding-left:4px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
-    .rowHead{font-size:12px; color:var(--muted); text-align:right; padding-right:6px; width:140px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
-
-    .cell{background: var(--card); border:1px solid var(--border); border-radius:16px; padding:10px; min-height:68px; box-shadow: var(--shadow);}
-    .empty{background: var(--empty); border:1px dashed var(--dash); box-shadow:none;}
-    .cellTitle{font-weight:900; font-size:13px; margin-bottom:6px; letter-spacing:.2px;}
-    .cellMeta{display:flex; gap:8px; align-items:center; font-size:12px; color: color-mix(in srgb, var(--text) 80%, var(--muted));}
-
-    hr{border:none; border-top:1px solid color-mix(in srgb, var(--border) 70%, transparent); margin:18px 0;}
-    ul{list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:10px;}
-    .li{background: var(--card2); border:1px solid var(--border); border-radius:16px; padding:12px; box-shadow: var(--shadow); break-inside: avoid;}
-    .liTitle{font-weight:950; margin-bottom:6px; letter-spacing:.2px;}
-    .liMeta{font-size:13px; color: color-mix(in srgb, var(--text) 82%, var(--muted)); margin-top:6px;}
-    .muted{color:var(--muted);}
-    a{color: var(--cyan); text-decoration:none;}
-    a:hover{text-decoration:underline;}
-    .sessionRow{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; padding-top:8px; border-top:1px solid color-mix(in srgb, var(--border) 70%, transparent); break-inside: avoid;}
-    .badge{display:inline-flex; align-items:center; justify-content:center; padding:2px 8px; border-radius:999px; border:1px solid color-mix(in srgb, var(--border) 90%, transparent); background: color-mix(in srgb, var(--btn) 85%, transparent); font-weight:950; font-size:12px;}
-    .room{opacity:.9;}
+${exportCss}
   </style>
 </head>
 <body>
@@ -586,6 +717,15 @@ export default function App() {
   }, [theme]);
 
   const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
+
+  /** Export skin (μόνο για export HTML) */
+  const [exportSkin, setExportSkin] = useState<ExportSkin>(() => {
+    const saved = localStorage.getItem(EXPORT_SKIN_KEY);
+    return saved === "lotr" ? "lotr" : "default";
+  });
+  useEffect(() => {
+    localStorage.setItem(EXPORT_SKIN_KEY, exportSkin);
+  }, [exportSkin]);
 
   const [init] = useState(() => {
     const s = loadSlotsFromStorage();
@@ -753,7 +893,7 @@ export default function App() {
   }
 
   function openExportPreview() {
-    const html = buildExportHtml(slots, courses, entries, theme);
+    const html = buildExportHtml(slots, courses, entries, theme, exportSkin);
     const blob = new Blob([html], { type: "text/html;charset=utf-8" });
     const url = URL.createObjectURL(blob);
 
@@ -767,7 +907,7 @@ export default function App() {
   }
 
   function downloadExportHtml() {
-    const html = buildExportHtml(slots, courses, entries, theme);
+    const html = buildExportHtml(slots, courses, entries, theme, exportSkin);
     const blob = new Blob([html], { type: "text/html;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -810,6 +950,9 @@ export default function App() {
 
     if (backup.theme === "light" || backup.theme === "dark") {
       setTheme(backup.theme);
+    }
+    if (backup.skin === "lotr" || backup.skin === "default") {
+      setExportSkin(backup.skin);
     }
 
     const slotsN = normalizeSlots(backup.data.slots);
@@ -988,7 +1131,11 @@ export default function App() {
                   data-id={s.id}
                 >
                   <div className="slotRowTop">
-                    <div className="dragHandle" title="Σύρε για αλλαγή σειράς" onPointerDown={() => setDraggingSlotId(s.id)}>
+                    <div
+                      className="dragHandle"
+                      title="Σύρε για αλλαγή σειράς"
+                      onPointerDown={() => setDraggingSlotId(s.id)}
+                    >
                       ⋮⋮
                     </div>
                     <div className="liTitle">Session: {s.label}</div>
@@ -1166,9 +1313,7 @@ export default function App() {
             {theme === "dark" ? "Light" : "Dark"}
           </button>
         </div>
-        <div className="sub">
-          Τα export HTML περιέχουν και backup για επαναφορά.
-        </div>
+        <div className="sub">Τα export HTML περιέχουν και backup για επαναφορά.</div>
       </header>
 
       <div className="layout">
@@ -1207,7 +1352,10 @@ export default function App() {
 
                 <label>
                   Τύπος (Θ/Ε) *
-                  <select value={form.classType} onChange={(e) => setForm((p) => ({ ...p, classType: e.target.value as ClassType }))}>
+                  <select
+                    value={form.classType}
+                    onChange={(e) => setForm((p) => ({ ...p, classType: e.target.value as ClassType }))}
+                  >
                     <option value="THEORY">Θεωρία (Θ)</option>
                     <option value="LAB">Εργαστήριο (Ε)</option>
                   </select>
@@ -1290,6 +1438,14 @@ export default function App() {
               </div>
 
               <div className="exportRow">
+                <label style={{ minWidth: 220 }}>
+                  Στυλ Export
+                  <select value={exportSkin} onChange={(e) => setExportSkin(e.target.value as ExportSkin)}>
+                    <option value="default">Κανονικό</option>
+                    <option value="lotr">Lord of the Rings</option>
+                  </select>
+                </label>
+
                 <button className="btn" onClick={openExportPreview}>
                   Προεπισκόπηση Export HTML
                 </button>
